@@ -73,6 +73,7 @@ const UI = {
     elements: {
         sourceList: document.getElementById('source-list'),
         scriptList: document.getElementById('script-list'),
+        workingList: document.getElementById('working-list'),
         preview: document.getElementById('preview-content'),
         filename: document.getElementById('current-filename'),
         saveBtn: document.getElementById('save-btn'),
@@ -182,13 +183,16 @@ const UI = {
                                 let targetPath = null;
                                 const inSource = State.files.source.find(f => f.name === fileName);
                                 const inScript = State.files.script.find(f => f.name === fileName);
+                                const inWorking = State.workingFiles.find(f => f.name === fileName);
                                 
                                 if (fileName.includes('/')) {
                                     targetPath = fileName;
                                 } else if (inSource) {
-                                    targetPath = `${inSource.category}/${fileName}`;
+                                    targetPath = inSource.path;
                                 } else if (inScript) {
-                                    targetPath = `${inScript.category}/${fileName}`;
+                                    targetPath = inScript.path;
+                                } else if (inWorking) {
+                                    targetPath = inWorking.path;
                                 }
 
                                 if (targetPath) {
@@ -279,32 +283,37 @@ const UI = {
                 const li = document.createElement('li');
                 li.className = `file-item ${State.currentPath === file.path ? 'active' : ''}`;
                 
+                let icon = '📝';
+                if (file.type === 'dir') icon = '📁';
+                else if (file.name.endsWith('.js')) icon = '📜';
+                else if (file.name.endsWith('.json')) icon = '📦';
+
                 li.innerHTML = `
-                    <div class="file-info" title="Doble clic para abrir">
-                        <i class="icon">${file.name.endsWith('.js') ? '📜' : '📝'}</i>
+                    <div class="file-info" title="${file.path}">
+                        <i class="icon">${icon}</i>
                         <span class="name-text">${file.name}</span>
                     </div>
-                    <button class="delete-btn" title="Eliminar">&times;</button>
+                    ${file.type !== 'dir' ? '<button class="delete-btn" title="Eliminar">&times;</button>' : ''}
                 `;
 
-                // Toda la fila (li) responde al clic
-                li.onclick = (e) => {
+                li.onclick = () => {
                     document.querySelectorAll('.file-item').forEach(item => item.classList.remove('active'));
                     li.classList.add('active');
                 };
 
-                // Toda la fila (li) responde al doble clic
                 li.ondblclick = (e) => {
-                    // Evitar que abra si se hace doble clic sobre el botón de borrar
-                    if (!e.target.classList.contains('delete-btn')) {
+                    if (!e.target.classList.contains('delete-btn') && file.type !== 'dir') {
                         App.handleOpenFile(file.path, file.name);
                     }
                 };
 
-                li.querySelector('.delete-btn').onclick = (e) => {
-                    e.stopPropagation(); // Evita que se dispare li.onclick
-                    App.handleDeleteFile(file.path);
-                };
+                const delBtn = li.querySelector('.delete-btn');
+                if (delBtn) {
+                    delBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        App.handleDeleteFile(file.path);
+                    };
+                }
 
                 container.appendChild(li);
             });
@@ -312,6 +321,7 @@ const UI = {
 
         render(data.sourceFiles, this.elements.sourceList);
         render(data.scriptFiles, this.elements.scriptList);
+        render(data.workingFiles, this.elements.workingList);
     },
 
     updateEditor(content, name) {

@@ -39,7 +39,8 @@ app.get('/api/files', (req, res) => {
 
     res.json({
         sourceFiles: getFiles(config.sourceDir),
-        scriptFiles: getFiles(config.scriptsDir)
+        scriptFiles: getFiles(config.scriptsDir),
+        workingFiles: getFiles(config.workingDir || '.')
     });
 });
 
