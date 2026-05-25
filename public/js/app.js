@@ -1,76 +1,270 @@
-let currentFilePath = null;
-let currentFileName = null;
+/**
+ * Virtual FS Studio - Modular Frontend with Monaco Editor
+ */
 
-async function loadFileList() {
-    const res = await fetch('/api/files');
-    const data = await res.json();
-    
-    const renderList = (files, elementId) => {
-        const list = document.getElementById(elementId);
-        list.innerHTML = '';
-        files.forEach(file => {
-            const li = document.createElement('li');
-            li.textContent = file.name;
-            li.onclick = () => openFile(file.path, file.name);
-            list.appendChild(li);
-        });
-    };
-
-    renderList(data.sourceFiles, 'source-list');
-    renderList(data.scriptFiles, 'script-list');
-}
-
-async function openFile(path, name) {
-    currentFilePath = path;
-    currentFileName = name;
-    document.getElementById('current-filename').textContent = name;
-    
-    const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
-    const data = await res.json();
-    document.getElementById('editor').value = data.content;
-    
-    // Si es un archivo de texto/md, intentar ver la previa procesada
-    if (name.endsWith('.txt') || name.endsWith('.md')) {
-        updatePreview(name);
-    } else {
-        document.getElementById('preview-content').textContent = "Solo disponible para archivos de texto/md en el punto de montaje.";
-    }
-}
-
-async function saveFile() {
-    if (!currentFilePath) return;
-    const content = document.getElementById('editor').value;
-    
-    const res = await fetch('/api/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: currentFilePath, content })
-    });
-    
-    if (res.ok) {
-        console.log("Guardado correctamente");
-        if (currentFileName.endsWith('.txt') || currentFileName.endsWith('.md')) {
-            // Pequeño delay para dejar que FUSE procese el cambio
-            setTimeout(() => updatePreview(currentFileName), 200);
-        }
-    }
-}
-
-async function updatePreview(name) {
-    const res = await fetch(`/api/view?name=${encodeURIComponent(name)}`);
-    const data = await res.json();
-    document.getElementById('preview-content').textContent = data.content;
-}
-
-// Eventos
-document.getElementById('save-btn').onclick = saveFile;
-
-document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.key === 's') {
-        e.preventDefault();
-        saveFile();
-    }
+// --- CONFIGURACIÓN DE LIBRERÍAS ---
+marked.setOptions({
+    highlight: function(code, lang) {
+        const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+        return hljs.highlight(code, { language }).value;
+    },
+    breaks: true,
+    gfm: true
 });
 
-// Inicio
-loadFileList();
+let editor; // Instancia de Monaco Editor
+
+// --- MÓDULO DE ESTADO ---
+const State = {
+    currentPath: null,
+    currentName: null,
+    files: { source: [], script: [] },
+    
+    setActive(path, name) {
+        this.currentPath = path;
+        this.currentName = name;
+    }
+};
+
+// --- MÓDULO DE API ---
+const API = {
+    async fetchFiles() {
+        const res = await fetch('/api/files');
+        return await res.json();
+    },
+    async fetchFileContent(path) {
+        const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+        return await res.json();
+    },
+    async saveFile(path, content) {
+        return await fetch('/api/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path, content })
+        });
+    },
+    async createFile(category, name) {
+        return await fetch('/api/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ category, name })
+        });
+    },
+    async deleteFile(path) {
+        return await fetch('/api/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path })
+        });
+    },
+    async fetchProcessedView(name) {
+        const res = await fetch(`/api/view?name=${encodeURIComponent(name)}`);
+        return await res.json();
+    }
+};
+
+// --- MÓDULO DE UI ---
+const UI = {
+    elements: {
+        sourceList: document.getElementById('source-list'),
+        scriptList: document.getElementById('script-list'),
+        preview: document.getElementById('preview-content'),
+        filename: document.getElementById('current-filename'),
+        saveBtn: document.getElementById('save-btn')
+    },
+
+    initMonaco() {
+        return new Promise((resolve) => {
+            require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+            require(['vs/editor/editor.main'], () => {
+                editor = monaco.editor.create(document.getElementById('monaco-editor-container'), {
+                    value: '',
+                    language: 'markdown',
+                    theme: 'vs-dark',
+                    automaticLayout: true,
+                    fontSize: 14,
+                    minimap: { enabled: false },
+                    scrollbar: {
+                        vertical: 'visible',
+                        horizontal: 'visible'
+                    }
+                });
+                resolve();
+            });
+        });
+    },
+
+    renderFileList(data) {
+        const render = (files, container) => {
+            container.innerHTML = '';
+            files.forEach(file => {
+                const li = document.createElement('li');
+                li.className = `file-item ${State.currentPath === file.path ? 'active' : ''}`;
+                
+                li.innerHTML = `
+                    <div class="file-info" title="Doble clic para abrir">
+                        <i class="icon">${file.name.endsWith('.js') ? '📜' : '📝'}</i>
+                        <span class="name-text">${file.name}</span>
+                    </div>
+                    <button class="delete-btn" title="Eliminar">&times;</button>
+                `;
+
+                // Toda la fila (li) responde al clic
+                li.onclick = (e) => {
+                    document.querySelectorAll('.file-item').forEach(item => item.classList.remove('active'));
+                    li.classList.add('active');
+                };
+
+                // Toda la fila (li) responde al doble clic
+                li.ondblclick = (e) => {
+                    // Evitar que abra si se hace doble clic sobre el botón de borrar
+                    if (!e.target.classList.contains('delete-btn')) {
+                        App.handleOpenFile(file.path, file.name);
+                    }
+                };
+
+                li.querySelector('.delete-btn').onclick = (e) => {
+                    e.stopPropagation(); // Evita que se dispare li.onclick
+                    App.handleDeleteFile(file.path);
+                };
+
+                container.appendChild(li);
+            });
+        };
+
+        render(data.sourceFiles, this.elements.sourceList);
+        render(data.scriptFiles, this.elements.scriptList);
+    },
+
+    updateEditor(content, name) {
+        const extension = name.split('.').pop();
+        let language = 'markdown';
+        if (extension === 'js') language = 'javascript';
+        if (extension === 'json') language = 'json';
+
+        monaco.editor.setModelLanguage(editor.getModel(), language);
+        editor.setValue(content);
+        this.elements.filename.textContent = name;
+    },
+
+    renderPreview(content, isMarkdown) {
+        if (isMarkdown) {
+            this.elements.preview.innerHTML = marked.parse(content);
+            this.elements.preview.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        } else {
+            this.elements.preview.innerHTML = `<pre class="plain-text"><code>${content}</code></pre>`;
+            if (this.elements.preview.querySelector('code')) {
+                hljs.highlightElement(this.elements.preview.querySelector('code'));
+            }
+        }
+    },
+
+    setLoading(isLoading, message = "Procesando...") {
+        if (isLoading) {
+            this.elements.preview.innerHTML = `<div class="loading">${message}</div>`;
+        }
+    }
+};
+
+// --- ORQUESTADOR PRINCIPAL (APP) ---
+const App = {
+    async init() {
+        await UI.initMonaco();
+        this.bindEvents();
+        await this.refreshFiles();
+    },
+
+    bindEvents() {
+        UI.elements.saveBtn.onclick = () => this.handleSave();
+        
+        // Atajo de teclado dentro de Monaco
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+            this.handleSave();
+        });
+    },
+
+    async refreshFiles() {
+        const data = await API.fetchFiles();
+        UI.renderFileList(data);
+    },
+
+    async handleOpenFile(path, name) {
+        State.setActive(path, name);
+        this.refreshFiles();
+
+        const data = await API.fetchFileContent(path);
+        UI.updateEditor(data.content, name);
+
+        if (name.endsWith('.txt') || name.endsWith('.md')) {
+            this.updateLivePreview();
+        } else {
+            UI.elements.preview.innerHTML = '<div class="empty-state">Vista previa no disponible</div>';
+        }
+    },
+
+    async handleSave() {
+        if (!State.currentPath) return;
+        
+        const content = editor.getValue();
+        const btn = UI.elements.saveBtn;
+        
+        btn.textContent = 'Guardando...';
+        btn.disabled = true;
+
+        const res = await API.saveFile(State.currentPath, content);
+        
+        if (res.ok) {
+            setTimeout(() => {
+                btn.textContent = 'Guardar (Ctrl+S)';
+                btn.disabled = false;
+                if (State.currentName.endsWith('.txt') || State.currentName.endsWith('.md')) {
+                    this.updateLivePreview();
+                }
+            }, 300);
+        }
+    },
+
+    async handleCreateFile(category) {
+        const name = prompt(`Nuevo archivo en ${category}:`);
+        if (!name) return;
+
+        const res = await API.createFile(category, name);
+        if (res.ok) {
+            await this.refreshFiles();
+            const dir = category === 'source' ? 'textos' : 'scripts';
+            this.handleOpenFile(`${dir}/${name}`, name);
+        } else {
+            const err = await res.json();
+            alert("Error: " + err.error);
+        }
+    },
+
+    async handleDeleteFile(path) {
+        if (!confirm(`¿Eliminar ${path}?`)) return;
+
+        const res = await API.deleteFile(path);
+        if (res.ok) {
+            if (State.currentPath === path) {
+                State.setActive(null, null);
+                UI.updateEditor('', 'Selecciona un archivo');
+                UI.elements.preview.innerHTML = '';
+            }
+            this.refreshFiles();
+        }
+    },
+
+    async updateLivePreview() {
+        UI.setLoading(true);
+        try {
+            const data = await API.fetchProcessedView(State.currentName);
+            UI.renderPreview(data.content, State.currentName.endsWith('.md'));
+        } catch (err) {
+            UI.elements.preview.innerHTML = '<div class="error">Error al procesar vista previa virtual</div>';
+        }
+    }
+};
+
+window.createNewFile = (cat) => App.handleCreateFile(cat);
+App.init();

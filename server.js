@@ -67,6 +67,33 @@ app.post('/api/save', (req, res) => {
     }
 });
 
+// Crear nuevo archivo
+app.post('/api/create', (req, res) => {
+    const { category, name } = req.body;
+    const dir = category === 'source' ? config.sourceDir : config.scriptsDir;
+    const absolutePath = path.resolve(__dirname, dir, name);
+    try {
+        if (fs.existsSync(absolutePath)) return res.status(400).json({ error: "El archivo ya existe" });
+        fs.writeFileSync(absolutePath, '', 'utf8');
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Eliminar archivo
+app.post('/api/delete', (req, res) => {
+    const { path: filePath } = req.body;
+    const absolutePath = path.resolve(__dirname, filePath);
+    try {
+        if (!fs.existsSync(absolutePath)) return res.status(404).json({ error: "No encontrado" });
+        fs.unlinkSync(absolutePath);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Ver archivo PROCESADO (desde el punto de montaje)
 app.get('/api/view', (req, res) => {
     const fileName = req.query.name;

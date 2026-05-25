@@ -66,8 +66,8 @@ async function main() {
   function processContent(filePath) {
     let content = fs.readFileSync(filePath, 'utf8')
     
-    // 1. Procesar bloques ```run ... ```
-    const runRegex = /```run\n([\s\S]*?)\n```/g
+    // 1. Procesar bloques ```run ... ``` (Soporta \n y \r\n)
+    const runRegex = /```run\r?\n([\s\S]*?)\r?\n```/g
     content = content.replace(runRegex, (match, command) => {
       const trimmedCommand = command.trim()
       try {
@@ -79,8 +79,8 @@ async function main() {
       }
     })
 
-    // 2. Procesar bloques ```script ... ```
-    const scriptRegex = /```script\n([\s\S]*?)\n```/g
+    // 2. Procesar bloques ```script ... ``` (Soporta \n y \r\n)
+    const scriptRegex = /```script\r?\n([\s\S]*?)\r?\n```/g
     content = content.replace(scriptRegex, (match, command) => {
       const trimmedCommand = command.trim()
       try {

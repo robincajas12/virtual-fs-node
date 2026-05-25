@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Virtual FS Editor</title>
     <link rel="stylesheet" href="css/style.css">
+    <!-- Markdown & Highlighting -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <!-- Monaco Editor -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
 </head>
 <body>
     <div id="app">
@@ -15,9 +21,15 @@
         
         <div class="main-container">
             <aside class="sidebar">
-                <h3>Fuentes (textos/)</h3>
+                <div class="sidebar-header">
+                    <h3>Fuentes (textos/)</h3>
+                    <button class="add-btn" onclick="createNewFile('source')">+</button>
+                </div>
                 <ul id="source-list"></ul>
-                <h3>Scripts (scripts/)</h3>
+                <div class="sidebar-header">
+                    <h3>Scripts (scripts/)</h3>
+                    <button class="add-btn" onclick="createNewFile('script')">+</button>
+                </div>
                 <ul id="script-list"></ul>
             </aside>
 
@@ -26,7 +38,7 @@
                     <span id="current-filename">Selecciona un archivo</span>
                     <button id="save-btn">Guardar (Ctrl+S)</button>
                 </div>
-                <textarea id="editor" placeholder="Escribe aquí..."></textarea>
+                <div id="monaco-editor-container" style="flex: 1; width: 100%;"></div>
             </main>
 
             <section class="preview-area">
