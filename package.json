@@ -9,6 +9,9 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "bin": {
+    "virtual-fs": "index.js"
+  },
   "dependencies": {
     "fuse-native": "^2.2.6"
   }

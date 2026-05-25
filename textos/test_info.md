@@ -2,11 +2,11 @@
 Este archivo es virtual.
 
 ## Fecha Actual
-```execute
+```run
 date
 ```
 
 ## Mi IP Pública
-```execute
+```run
 curl -s https://ifconfig.me || echo 'No se pudo obtener la IP'
 ```

@@ -1,7 +1,7 @@
 Hola desde el archivo de texto.
 
 Resultado del script JS:
-```execute
+```run
 node holaMundo.js
 ```
 
