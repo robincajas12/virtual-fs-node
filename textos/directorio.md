@@ -1,6 +1,19 @@
-# Listado de archivos reales
-Este bloque muestra los archivos que hay en la carpeta del proyecto:
+# Explorador de Proyecto
 
+## Archivos en la Raíz
+Listado obtenido mediante `run`:
 ```run
-ls -F ..
+ls -p | grep -v /
+```
+
+## Scripts Disponibles
+Listado obtenido mediante `script` (dentro de la carpeta de scripts):
+```script
+ls *.js
+```
+
+## Información de Red
+Un comando rápido de sistema:
+```run
+hostname
 ```

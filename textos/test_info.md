@@ -1,12 +1,13 @@
-# Información del Sistema
-Este archivo es virtual.
+# Información de Prueba
 
-## Fecha Actual
+Este archivo demuestra que puedes mezclar múltiples comandos.
+
+## Fecha del sistema
 ```run
 date
 ```
 
-## Mi IP Pública
-```run
-curl -s https://ifconfig.me || echo 'No se pudo obtener la IP'
+## Ejecución de lógica
+```script
+node -e "console.log('Calculando algo...'); console.log('Resultado: ' + (5 * 5))"
 ```

@@ -19,6 +19,7 @@ console.log(`Iniciando con Index: ${INDEX} y Config Path: ${CONFIG_PATH}`)
 let SOURCE_DIR = path.join(__dirname, 'textos') 
 let MOUNT_POINT = path.join(__dirname, 'mnt', INDEX)
 let SCRIPTS_DIR = path.join(__dirname, 'scripts')
+let WORKING_DIR = SCRIPTS_DIR // Por defecto los comandos corren en scripts/
 
 // ---------------------
 
@@ -33,12 +34,16 @@ async function main() {
       if (config.sourceDir) SOURCE_DIR = path.resolve(config.sourceDir)
       if (config.mountPoint) MOUNT_POINT = path.resolve(config.mountPoint)
       if (config.scriptsDir) SCRIPTS_DIR = path.resolve(config.scriptsDir)
+      if (config.workingDir) WORKING_DIR = path.resolve(config.workingDir)
+      else WORKING_DIR = SCRIPTS_DIR // Si no hay workingDir, usamos scriptsDir
+      
       console.log('[CONFIG] Configuración aplicada exitosamente.')
     } catch (err) {
       console.warn(`[CONFIG] Error al leer el archivo de configuración: ${err.message}. Usando valores por defecto.`)
     }
   } else {
     console.log(`[CONFIG] No se encontró el archivo ${CONFIG_PATH}. Usando valores por defecto.`)
+    WORKING_DIR = SCRIPTS_DIR
   }
 
   // Asegurar que existan los directorios
@@ -46,6 +51,7 @@ async function main() {
     if (!fs.existsSync(SOURCE_DIR)) fs.mkdirSync(SOURCE_DIR, { recursive: true })
     if (!fs.existsSync(MOUNT_POINT)) fs.mkdirSync(MOUNT_POINT, { recursive: true })
     if (!fs.existsSync(SCRIPTS_DIR)) fs.mkdirSync(SCRIPTS_DIR, { recursive: true })
+    if (!fs.existsSync(WORKING_DIR)) fs.mkdirSync(WORKING_DIR, { recursive: true })
   } catch (err) {
     console.error('Error al crear directorios:', err.message)
     process.exit(1)
@@ -53,23 +59,40 @@ async function main() {
 
   /**
    * Esta función es la que "corre los comandos"
-   * Busca bloques ```run ... ``` y los reemplaza por su salida
+   * Soporta dos tipos de bloques:
+   * ```run ... ``` -> Corre en WORKING_DIR (ej: raíz del proyecto)
+   * ```script ... ``` -> Corre en SCRIPTS_DIR (carpeta de scripts)
    */
   function processContent(filePath) {
     let content = fs.readFileSync(filePath, 'utf8')
-    const regex = /```run\n([\s\S]*?)\n```/g
     
-    return content.replace(regex, (match, command) => {
+    // 1. Procesar bloques ```run ... ```
+    const runRegex = /```run\n([\s\S]*?)\n```/g
+    content = content.replace(runRegex, (match, command) => {
       const trimmedCommand = command.trim()
       try {
-        console.log(`[EJECUTANDO] En ${path.basename(filePath)}: ${trimmedCommand}`)
-        // Ejecutamos el comando y devolvemos el resultado
+        console.log(`[RUN] En ${path.basename(filePath)} (CWD: ${WORKING_DIR}): ${trimmedCommand}`)
+        const output = execSync(trimmedCommand, { cwd: WORKING_DIR, timeout: 5000 }).toString()
+        return output.trim()
+      } catch (err) {
+        return `[Error en RUN: ${err.message}]`
+      }
+    })
+
+    // 2. Procesar bloques ```script ... ```
+    const scriptRegex = /```script\n([\s\S]*?)\n```/g
+    content = content.replace(scriptRegex, (match, command) => {
+      const trimmedCommand = command.trim()
+      try {
+        console.log(`[SCRIPT] En ${path.basename(filePath)} (CWD: ${SCRIPTS_DIR}): ${trimmedCommand}`)
         const output = execSync(trimmedCommand, { cwd: SCRIPTS_DIR, timeout: 5000 }).toString()
         return output.trim()
       } catch (err) {
-        return `[Error al ejecutar: ${err.message}]`
+        return `[Error en SCRIPT: ${err.message}]`
       }
     })
+
+    return content
   }
 
   const ops = {

@@ -1,8 +1,15 @@
-Hola desde el archivo de texto.
+# Prueba de Bloques Duales
 
-Resultado del script JS:
+## Bloque RUN (Contexto: Raíz del proyecto)
+Este comando lista los archivos de la raíz usando el `workingDir`:
 ```run
+ls -F
+```
+
+## Bloque SCRIPT (Contexto: Carpeta de scripts)
+Este comando ejecuta un script dentro de `scriptsDir`:
+```script
 node holaMundo.js
 ```
 
-¡Listo!
+¡Ambos contextos funcionando por separado!

@@ -1,5 +1,6 @@
 {
   "sourceDir": "./textos",
   "mountPoint": "./mnt/virtual",
-  "scriptsDir": "./scripts"
+  "scriptsDir": "./scripts",
+  "workingDir": "."
 }
