@@ -70,7 +70,10 @@ const UI = {
         scriptList: document.getElementById('script-list'),
         preview: document.getElementById('preview-content'),
         filename: document.getElementById('current-filename'),
-        saveBtn: document.getElementById('save-btn')
+        saveBtn: document.getElementById('save-btn'),
+        resizer: document.getElementById('resizer'),
+        editorLang: document.getElementById('editor-language'),
+        editorPos: document.getElementById('editor-pos')
     },
 
     initMonaco() {
@@ -84,13 +87,55 @@ const UI = {
                     automaticLayout: true,
                     fontSize: 14,
                     minimap: { enabled: false },
+                    wordWrap: 'on',
                     scrollbar: {
                         vertical: 'visible',
                         horizontal: 'visible'
                     }
                 });
+
+                // Escuchar cambios de posición del cursor
+                editor.onDidChangeCursorPosition((e) => {
+                    this.elements.editorPos.textContent = `Ln ${e.position.lineNumber}, Col ${e.position.column}`;
+                });
+
                 resolve();
             });
+        });
+    },
+
+    initResizer() {
+        let isResizing = false;
+        const container = document.querySelector('.main-container');
+        const editorArea = document.querySelector('.editor-area');
+
+        this.elements.resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            document.body.style.cursor = 'col-resize';
+            // Evitar que el editor capture eventos mientras arrastramos
+            document.body.style.pointerEvents = 'none';
+            this.elements.resizer.style.pointerEvents = 'auto';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            
+            const containerRect = container.getBoundingClientRect();
+            const sidebarWidth = document.querySelector('.sidebar').offsetWidth;
+            const newEditorWidth = e.clientX - containerRect.left - sidebarWidth;
+            
+            if (newEditorWidth > 200 && (containerRect.width - newEditorWidth - sidebarWidth) > 200) {
+                editorArea.style.flex = 'none';
+                editorArea.style.width = `${newEditorWidth}px`;
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                document.body.style.cursor = 'default';
+                document.body.style.pointerEvents = 'auto';
+            }
         });
     },
 
@@ -143,6 +188,7 @@ const UI = {
         if (extension === 'json') language = 'json';
 
         monaco.editor.setModelLanguage(editor.getModel(), language);
+        this.elements.editorLang.textContent = language;
         editor.setValue(content);
         this.elements.filename.textContent = name;
     },
@@ -172,6 +218,7 @@ const UI = {
 const App = {
     async init() {
         await UI.initMonaco();
+        UI.initResizer();
         this.bindEvents();
         await this.refreshFiles();
     },

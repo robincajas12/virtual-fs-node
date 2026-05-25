@@ -1,6 +1,6 @@
 {
-  "sourceDir": "./textos",
-  "mountPoint": "./mnt/virtual",
-  "scriptsDir": "./scripts",
-  "workingDir": "."
+  "sourceDir": "/home/robin/workspace_aparte/prompts",
+  "mountPoint": "/home/robin/virtual_archives/mnt",
+  "scriptsDir": "/home/robin/workspace_aparte/scripts",
+  "workingDir": "/home/robin/virtual_archives"
 }

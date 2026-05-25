@@ -1,0 +1,23 @@
+### 🛠 Estado de Dependencias
+Verificando si existe la carpeta node_modules:
+```run
+[ -d "./node_modules" ] && echo "✅ Dependencias instaladas" || echo "❌ Ejecuta 'npm install' para continuar"
+```
+
+### 📦 Información del Package.json
+Usando Node para leer y formatear datos del proyecto:
+```run-node
+const pkg = require('./package.json');
+console.log(`Proyecto: ${pkg.name.toUpperCase()}`);
+console.log(`Versión actual: v${pkg.version}`);
+console.log(`Descripción: ${pkg.description || 'Sin descripción'}`);
+```
+
+### 🚀 Scripts Disponibles
+Lista de comandos configurados en el proyecto:
+```run-node
+const fs = require('fs');
+const { scripts } = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
+console.log('Comandos de npm encontrados:');
+Object.keys(scripts).forEach(s => console.log(` - npm run ${s}`));
+```

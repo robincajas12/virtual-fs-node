@@ -3,7 +3,8 @@
 const Fuse = require('fuse-native')
 const path = require('path')
 const fs = require('fs')
-const { execSync } = require('child_process')
+const { applyConfig } = require('./lib/config')
+const { processContent } = require('./lib/processor')
 
 // --- ARGUMENTOS CLI ---
 const args = process.argv.slice(2)
@@ -16,10 +17,12 @@ const [INDEX, CONFIG_PATH] = args
 console.log(`Iniciando con Index: ${INDEX} y Config Path: ${CONFIG_PATH}`)
 
 // --- CONFIGURACIÓN POR DEFECTO ---
-let SOURCE_DIR = path.join(__dirname, 'textos') 
-let MOUNT_POINT = path.join(__dirname, 'mnt', INDEX)
-let SCRIPTS_DIR = path.join(__dirname, 'scripts')
-let WORKING_DIR = SCRIPTS_DIR // Por defecto los comandos corren en scripts/
+let CONFIG = {
+  SOURCE_DIR: path.join(__dirname, 'textos'),
+  MOUNT_POINT: path.join(__dirname, 'mnt', INDEX),
+  SCRIPTS_DIR: path.join(__dirname, 'scripts'),
+  WORKING_DIR: path.join(__dirname, 'scripts')
+}
 
 // ---------------------
 
@@ -29,13 +32,10 @@ async function main() {
     try {
       console.log(`[CONFIG] Cargando configuración desde ${CONFIG_PATH}...`)
       const configData = fs.readFileSync(CONFIG_PATH, 'utf8')
-      const config = JSON.parse(configData)
-      
-      if (config.sourceDir) SOURCE_DIR = path.resolve(config.sourceDir)
-      if (config.mountPoint) MOUNT_POINT = path.resolve(config.mountPoint)
-      if (config.scriptsDir) SCRIPTS_DIR = path.resolve(config.scriptsDir)
-      if (config.workingDir) WORKING_DIR = path.resolve(config.workingDir)
-      else WORKING_DIR = SCRIPTS_DIR // Si no hay workingDir, usamos scriptsDir
+      const userConfig = JSON.parse(configData)
+      const configDir = path.dirname(path.resolve(CONFIG_PATH))
+
+      CONFIG = applyConfig(userConfig, configDir, CONFIG)
       
       console.log('[CONFIG] Configuración aplicada exitosamente.')
     } catch (err) {
@@ -43,62 +43,22 @@ async function main() {
     }
   } else {
     console.log(`[CONFIG] No se encontró el archivo ${CONFIG_PATH}. Usando valores por defecto.`)
-    WORKING_DIR = SCRIPTS_DIR
   }
 
   // Asegurar que existan los directorios
   try {
-    if (!fs.existsSync(SOURCE_DIR)) fs.mkdirSync(SOURCE_DIR, { recursive: true })
-    if (!fs.existsSync(MOUNT_POINT)) fs.mkdirSync(MOUNT_POINT, { recursive: true })
-    if (!fs.existsSync(SCRIPTS_DIR)) fs.mkdirSync(SCRIPTS_DIR, { recursive: true })
-    if (!fs.existsSync(WORKING_DIR)) fs.mkdirSync(WORKING_DIR, { recursive: true })
+    Object.values(CONFIG).forEach(dir => {
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+    })
   } catch (err) {
     console.error('Error al crear directorios:', err.message)
     process.exit(1)
   }
 
-  /**
-   * Esta función es la que "corre los comandos"
-   * Soporta dos tipos de bloques:
-   * ```run ... ``` -> Corre en WORKING_DIR (ej: raíz del proyecto)
-   * ```script ... ``` -> Corre en SCRIPTS_DIR (carpeta de scripts)
-   */
-  function processContent(filePath) {
-    let content = fs.readFileSync(filePath, 'utf8')
-    
-    // 1. Procesar bloques ```run ... ``` (Soporta \n y \r\n)
-    const runRegex = /```run\r?\n([\s\S]*?)\r?\n```/g
-    content = content.replace(runRegex, (match, command) => {
-      const trimmedCommand = command.trim()
-      try {
-        console.log(`[RUN] En ${path.basename(filePath)} (CWD: ${WORKING_DIR}): ${trimmedCommand}`)
-        const output = execSync(trimmedCommand, { cwd: WORKING_DIR, timeout: 5000 }).toString()
-        return output.trim()
-      } catch (err) {
-        return `[Error en RUN: ${err.message}]`
-      }
-    })
-
-    // 2. Procesar bloques ```script ... ``` (Soporta \n y \r\n)
-    const scriptRegex = /```script\r?\n([\s\S]*?)\r?\n```/g
-    content = content.replace(scriptRegex, (match, command) => {
-      const trimmedCommand = command.trim()
-      try {
-        console.log(`[SCRIPT] En ${path.basename(filePath)} (CWD: ${SCRIPTS_DIR}): ${trimmedCommand}`)
-        const output = execSync(trimmedCommand, { cwd: SCRIPTS_DIR, timeout: 5000 }).toString()
-        return output.trim()
-      } catch (err) {
-        return `[Error en SCRIPT: ${err.message}]`
-      }
-    })
-
-    return content
-  }
-
   const ops = {
     readdir: function (dirPath, cb) {
       if (dirPath === '/') {
-        fs.readdir(SOURCE_DIR, (err, files) => {
+        fs.readdir(CONFIG.SOURCE_DIR, (err, files) => {
           if (err) return cb(Fuse.ENOENT)
           return cb(0, files)
         })
@@ -108,19 +68,18 @@ async function main() {
     },
 
     getattr: function (filePath, cb) {
-      const fullPath = path.join(SOURCE_DIR, filePath)
+      const fullPath = path.join(CONFIG.SOURCE_DIR, filePath)
       if (filePath === '/') {
         return cb(null, { mtime: new Date(), atime: new Date(), ctime: new Date(), mode: 16877, size: 4096, uid: process.getuid(), gid: process.getgid() })
       }
-      
+
       if (fs.existsSync(fullPath)) {
         const stats = fs.statSync(fullPath)
         if (stats.isDirectory()) return cb(null, { ...stats, mode: 16877 })
 
-        // Calculamos el tamaño del archivo YA PROCESADO
-        const processed = processContent(fullPath)
+        const processed = processContent(fullPath, CONFIG)
         const size = Buffer.byteLength(processed)
-        
+
         return cb(null, {
           mtime: stats.mtime,
           atime: stats.atime,
@@ -135,9 +94,9 @@ async function main() {
     },
 
     read: function (filePath, fd, buf, len, pos, cb) {
-      const fullPath = path.join(SOURCE_DIR, filePath)
+      const fullPath = path.join(CONFIG.SOURCE_DIR, filePath)
       if (fs.existsSync(fullPath)) {
-        const processed = processContent(fullPath)
+        const processed = processContent(fullPath, CONFIG)
         const buffer = Buffer.from(processed)
         const part = buffer.slice(pos, pos + len)
         part.copy(buf)
@@ -147,7 +106,7 @@ async function main() {
     }
   }
 
-  const fuse = new Fuse(MOUNT_POINT, ops, { debug: false, displayFolder: true, nonempty: true })
+  const fuse = new Fuse(CONFIG.MOUNT_POINT, ops, { debug: false, displayFolder: true, nonempty: true })
 
   fuse.mount(err => {
     if (err) {
@@ -156,8 +115,8 @@ async function main() {
     }
     console.log('--- SISTEMA VIRTUAL DE COMANDOS ACTIVO ---')
     console.log(`Index: ${INDEX}`)
-    console.log('1. Archivos fuente en: ' + SOURCE_DIR)
-    console.log('2. Punto de montaje en: ' + MOUNT_POINT)
+    console.log('1. Archivos fuente en: ' + CONFIG.SOURCE_DIR)
+    console.log('2. Punto de montaje en: ' + CONFIG.MOUNT_POINT)
     console.log('-------------------------------------------')
   })
 
