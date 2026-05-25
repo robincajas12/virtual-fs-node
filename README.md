@@ -121,7 +121,3 @@ Agent writes the file. Reads again:
 ```
 
 Done. The file re-executes on every read — no cache, no polling, no stale state.
-
-## License
-
-MIT
