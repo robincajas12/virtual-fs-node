@@ -2,7 +2,14 @@
 
 A FUSE filesystem that turns Markdown into live, executable context for AI agents.
 
-When an AI agent reads a `.md` file from the mount point, the system intercepts the syscall, executes any embedded code blocks against your real project files, and returns the live output — instead of the static source. No APIs, no custom tools. The file itself is the interface.
+**NEW: Hybrid Mode!** This version now supports a hybrid architecture that merges your project code with augmented diagnostic tools (`.super.md`).
+
+---
+
+## 📖 Documentation
+For the new Hybrid Mode features, check out the [Hybrid Guide](docs/guia.md).
+
+---
 
 ## Install
 

@@ -62,7 +62,8 @@ async function main() {
       if (dirPath === "/" || dirPath === "") entries.add(".mode")
       try {
         if (fs.existsSync(projectPath)) {
-          fs.readdirSync(projectPath).forEach(f => {
+          const files = fs.readdirSync(projectPath)
+          files.forEach(f => {
             if (relative === "" && CONFIG.IGNORE_LIST.includes(f)) return
             entries.add(f)
           })
@@ -149,7 +150,7 @@ async function main() {
       } catch (err) { cb(Fuse.EIO) }
     },
 
-    mkdir: function (filePath, cb) {
+    mkdir: function (filePath, mode, cb) {
       const realPath = path.join(CONFIG.PROJECT_DIR, filePath)
       try { fs.mkdirSync(realPath, { recursive: true }); cb(0) } catch (e) { cb(Fuse.EIO) }
     },
