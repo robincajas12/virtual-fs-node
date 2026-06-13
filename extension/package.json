@@ -1,0 +1,48 @@
+{
+    "name": "virtual-fs-vscode",
+    "displayName": "Virtual FS Control",
+    "description": "Control your Virtual FS Híbrido directly from VS Code",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.60.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "onCommand:virtual-fs.toggleMode"
+    ],
+    "main": "./extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "virtual-fs.toggleMode",
+                "title": "VFS: Toggle Mode",
+                "icon": "$(sync)"
+            },
+            {
+                "command": "virtual-fs.selectConfig",
+                "title": "VFS: Select Config File"
+            }
+        ],
+        "menus": {
+            "editor/title": [
+                {
+                    "command": "virtual-fs.toggleMode",
+                    "group": "navigation",
+                    "when": "resourceExtname == .md"
+                }
+            ]
+        }
+    },
+    "scripts": {
+        "lint": "eslint .",
+        "pretest": "npm run lint",
+        "test": "node ./test/runTest.js"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.60.0",
+        "@types/node": "14.x",
+        "eslint": "^7.32.0"
+    }
+}

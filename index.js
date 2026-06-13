@@ -3,220 +3,209 @@
 const Fuse = require("fuse-native")
 const path = require("path")
 const fs = require("fs")
-const { applyConfig } = require("./lib/config")
+const readline = require("readline")
 const { processContent } = require("./lib/processor")
+const cache = require("./lib/cache")
 
-// --- CACHE STORAGE ---
-const openHandles = new Map(); 
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+})
 
 const args = process.argv.slice(2)
-if (args.length < 2) {
-  console.log("Uso: node index.js <index> <config_path>")
+if (args.length < 1) {
+  console.log("Uso: node index.js <project_dir>")
   process.exit(1)
 }
 
-const [INDEX, CONFIG_PATH] = args
-console.log(`Iniciando Sistema Híbrido con Index: ${INDEX}`)
+const PROJECT_ROOT = path.resolve(args[0])
+const SUPER_MD_DIR = path.join(PROJECT_ROOT, ".super_md")
+const CONFIG_PATH = path.join(SUPER_MD_DIR, "config.json")
 
 let CONFIG = {
-  SOURCE_DIR: path.join(__dirname, "textos"),
-  PROJECT_DIR: path.join(__dirname, "archives"),
-  MOUNT_POINT: path.join(__dirname, "mnt", INDEX),
-  SCRIPTS_DIR: path.join(__dirname, "scripts"),
-  WORKING_DIR: path.join(__dirname, "archives"),
+  SOURCE_DIR: path.join(SUPER_MD_DIR, "archives"),
+  PROJECT_DIR: PROJECT_ROOT,
+  MOUNT_POINT: "",
+  SCRIPTS_DIR: path.join(SUPER_MD_DIR, "scripts"),
+  WORKING_DIR: PROJECT_ROOT,
   IGNORE_LIST: ["node_modules", ".git", ".super_md", "mnt"]
 }
 
 let MODE = "edit"
+const openHandles = new Map()
 
-async function main() {
-  if (fs.existsSync(CONFIG_PATH)) {
-    try {
-      const configData = fs.readFileSync(CONFIG_PATH, "utf8")
-      const userConfig = JSON.parse(configData)
-      const configDir = path.dirname(path.resolve(CONFIG_PATH))
-      CONFIG = applyConfig(userConfig, configDir, CONFIG)
-    } catch (err) {}
+async function start() {
+  // 1. Asegurar que exista .super_md
+  if (!fs.existsSync(SUPER_MD_DIR)) {
+    fs.mkdirSync(SUPER_MD_DIR, { recursive: true })
   }
 
-  [CONFIG.SOURCE_DIR, CONFIG.PROJECT_DIR, CONFIG.MOUNT_POINT].forEach(dir => {
-    if (dir && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  // Inicializar Caché SQLite
+  cache.initCache(PROJECT_ROOT);
+
+  // 2. Cargar o crear Config
+  if (fs.existsSync(CONFIG_PATH)) {
+    const data = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"))
+    CONFIG.MOUNT_POINT = data.mountPoint || ""
+  }
+
+  if (!CONFIG.MOUNT_POINT) {
+    CONFIG.MOUNT_POINT = await new Promise(resolve => {
+      rl.question(`No se encontró punto de montaje para este proyecto.\nEscribe la ruta donde quieres montar el VFS: `, (answer) => {
+        resolve(path.resolve(answer))
+      })
+    })
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ mountPoint: CONFIG.MOUNT_POINT }, null, 2))
+    console.log(`Configuración guardada en: ${CONFIG_PATH}`)
+  }
+
+  // 3. Asegurar subcarpetas
+  [CONFIG.SOURCE_DIR, CONFIG.SCRIPTS_DIR, CONFIG.MOUNT_POINT].forEach(dir => {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   })
 
+  main()
+}
+
+function main() {
   const SUPER_SUFFIX = ".super.md"
   const isSuperFile = (p) => p.endsWith(SUPER_SUFFIX)
 
   function getRealFilePath(filePath) {
     let relative = filePath.startsWith("/") ? filePath.slice(1) : filePath
-    if (isSuperFile(relative)) {
-      const sPath = path.join(CONFIG.SOURCE_DIR, relative)
-      return sPath
-    }
+    if (isSuperFile(relative)) return path.join(CONFIG.SOURCE_DIR, relative)
     return path.join(CONFIG.PROJECT_DIR, relative)
   }
 
   const ops = {
-    readdir: function (dirPath, cb) {
+    readdir: (dirPath, cb) => {
       let relative = dirPath.startsWith("/") ? dirPath.slice(1) : dirPath
-      const projectPath = path.join(CONFIG.PROJECT_DIR, relative)
-      const superPath = path.join(CONFIG.SOURCE_DIR, relative)
+      const pPath = path.join(CONFIG.PROJECT_DIR, relative)
+      const sPath = path.join(CONFIG.SOURCE_DIR, relative)
       const entries = new Set()
       if (dirPath === "/" || dirPath === "") entries.add(".mode")
       try {
-        if (fs.existsSync(projectPath)) {
-          fs.readdirSync(projectPath).forEach(f => {
+        if (fs.existsSync(pPath)) {
+          fs.readdirSync(pPath).forEach(f => {
             if (relative === "" && CONFIG.IGNORE_LIST.includes(f)) return
             entries.add(f)
           })
         }
       } catch (e) {}
       try {
-        if (fs.existsSync(superPath)) {
-          fs.readdirSync(superPath).forEach(f => { if (isSuperFile(f)) entries.add(f) })
+        if (fs.existsSync(sPath)) {
+          fs.readdirSync(sPath).forEach(f => { if (isSuperFile(f)) entries.add(f) })
         }
       } catch (e) {}
-      return cb(0, Array.from(entries))
+      cb(0, Array.from(entries))
     },
 
-    getattr: function (filePath, cb) {
-      if (filePath === "/.mode") {
-        return cb(null, { mtime: new Date(), atime: new Date(), ctime: new Date(), mode: 33188, size: MODE.length + 1, uid: process.getuid(), gid: process.getgid() })
+    getattr: (filePath, cb) => {
+      if (filePath === "/.mode" || filePath === ".mode") {
+        return cb(null, { mtime: new Date(), atime: new Date(), ctime: new Date(), mode: 33188, size: 10, uid: process.getuid(), gid: process.getgid() })
       }
       const relative = filePath.startsWith("/") ? filePath.slice(1) : filePath
       const sPath = path.join(CONFIG.SOURCE_DIR, relative)
       const pPath = path.join(CONFIG.PROJECT_DIR, relative)
       let realPath = (isSuperFile(relative) && fs.existsSync(sPath)) ? sPath : (fs.existsSync(pPath) ? pPath : null)
-if (realPath) {
-    try {
-      const stats = fs.statSync(realPath);
-      if (stats.isDirectory()) return cb(null, stats);
-      
-      // CAMBIO AQUÍ: No ejecutes processContent. 
-      // Devuelve el tamaño del archivo fuente o un tamaño fijo (ej: 1MB)
-      // para que el comando 'cat' pueda leer sin ejecutar nada.
-      return cb(null, { ...stats, size: 1024 * 1024 }); 
-    } catch (e) { return cb(Fuse.EIO) }
-  }
-  return cb(Fuse.ENOENT)
+      if (realPath) {
+        try {
+          const stats = fs.statSync(realPath)
+          if (stats.isDirectory()) return cb(null, stats)
+          return cb(null, { ...stats, size: 1024 * 1024 })
+        } catch (e) { return cb(Fuse.EIO) }
+      }
+      cb(Fuse.ENOENT)
     },
 
-    open: function(filePath, flags, cb) {
+    open: (filePath, flags, cb) => {
+      if (filePath === "/.mode" || filePath === ".mode") return cb(0, 42)
       if (MODE === "exec" && isSuperFile(filePath)) {
-        const realPath = getRealFilePath(filePath)
-        const content = processContent(realPath, CONFIG)
+        const content = processContent(getRealFilePath(filePath), CONFIG)
         openHandles.set(filePath, Buffer.from(content))
       }
-      cb(0, 42) // Use a dummy FD
+      cb(0, 42)
     },
 
-    read: function (filePath, fd, buf, len, pos, cb) {
-      if (filePath === "/.mode") {
-        const str = MODE + "\n"
-        const part = Buffer.from(str).slice(pos, pos + len)
-        part.copy(buf)
-        return cb(part.length)
+    read: (filePath, fd, buf, len, pos, cb) => {
+      if (filePath === "/.mode" || filePath === ".mode") {
+        const part = Buffer.from(MODE + "\n").slice(pos, pos + len)
+        part.copy(buf); return cb(part.length)
       }
-      
-      // Use cached content if available
       if (openHandles.has(filePath)) {
-        const buffer = openHandles.get(filePath)
-        const part = buffer.slice(pos, pos + len)
-        part.copy(buf)
-        return cb(part.length)
+        const part = openHandles.get(filePath).slice(pos, pos + len)
+        part.copy(buf); return cb(part.length)
       }
-
       try {
-        const realPath = getRealFilePath(filePath)
-        const fdReal = fs.openSync(realPath, "r")
+        const fdReal = fs.openSync(getRealFilePath(filePath), "r")
         const bytesRead = fs.readSync(fdReal, buf, 0, len, pos)
-        fs.closeSync(fdReal)
-        return cb(bytesRead)
-      } catch (e) { return cb(Fuse.EIO) }
+        fs.closeSync(fdReal); return cb(bytesRead)
+      } catch (e) { cb(Fuse.EIO) }
     },
 
-    release: function(filePath, fd, cb) {
-      openHandles.delete(filePath)
-      cb(0)
-    },
-
-    write: function (filePath, fd, buf, len, pos, cb) {
-      if (filePath === "/.mode") {
+    write: (filePath, fd, buf, len, pos, cb) => {
+      if (filePath === "/.mode" || filePath === ".mode") {
         const input = buf.slice(0, len).toString().trim()
         if (input === "exec" || input === "edit") { MODE = input; return cb(len) }
         return cb(Fuse.EINVAL)
       }
-      if (MODE === "exec" && isSuperFile(filePath)) return cb(Fuse.EACCES)
       try {
-        const realPath = getRealFilePath(filePath)
-        const fdReal = fs.openSync(realPath, "r+")
+        const fdReal = fs.openSync(getRealFilePath(filePath), "r+")
         const written = fs.writeSync(fdReal, buf, 0, len, pos)
-        fs.closeSync(fdReal)
-        return cb(written)
-      } catch (err) { return cb(Fuse.EIO) }
-    },
-
-    create: function (filePath, mode, cb) {
-      const realPath = getRealFilePath(filePath)
-      try {
-        const dir = path.dirname(realPath)
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-        const fd = fs.openSync(realPath, "w")
-        fs.closeSync(fd)
-        cb(0, 0)
+        fs.closeSync(fdReal); return cb(written)
       } catch (err) { cb(Fuse.EIO) }
     },
 
-    mkdir: function (filePath, mode, cb) {
-      const realPath = path.join(CONFIG.PROJECT_DIR, filePath)
-      try { fs.mkdirSync(realPath, { recursive: true }); cb(0) } catch (e) { cb(Fuse.EIO) }
+    truncate: (p, s, cb) => {
+      if (p === "/.mode" || p === ".mode") return cb(0)
+      try { fs.truncateSync(getRealFilePath(p), s); cb(0) } catch(e) { cb(Fuse.EIO) }
     },
 
-    rename: function (src, dest, cb) {
-      const isSuper = (p) => p.endsWith(".super.md")
-      const getP = (p) => isSuper(p) ? path.join(CONFIG.SOURCE_DIR, p) : path.join(CONFIG.PROJECT_DIR, p)
-      const oldP = getP(src)
-      const newP = getP(dest)
+    release: (filePath, fd, cb) => { openHandles.delete(filePath); cb(0) },
+    flush: (path, fd, cb) => cb(0),
+    create: (filePath, mode, cb) => {
       try {
-        const dir = path.dirname(newP)
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-        fs.renameSync(oldP, newP)
+        const realPath = getRealFilePath(filePath)
+        if (!fs.existsSync(path.dirname(realPath))) fs.mkdirSync(path.dirname(realPath), { recursive: true })
+        fs.closeSync(fs.openSync(realPath, "w")); cb(0, 0)
+      } catch (e) { cb(Fuse.EIO) }
+    },
+    mkdir: (filePath, mode, cb) => {
+      try { fs.mkdirSync(path.join(CONFIG.PROJECT_DIR, filePath), { recursive: true }); cb(0) } catch (e) { cb(Fuse.EIO) }
+    },
+    unlink: (filePath, cb) => {
+      try {
+        const s = path.join(CONFIG.SOURCE_DIR, filePath), p = path.join(CONFIG.PROJECT_DIR, filePath)
+        if (fs.existsSync(s)) fs.unlinkSync(s)
+        if (fs.existsSync(p)) fs.unlinkSync(p)
         cb(0)
       } catch (e) { cb(Fuse.EIO) }
     },
-
-    unlink: function (filePath, cb) {
-      const sPath = path.join(CONFIG.SOURCE_DIR, filePath)
-      const pPath = path.join(CONFIG.PROJECT_DIR, filePath)
+    rename: (src, dest, cb) => {
       try {
-        if (fs.existsSync(sPath)) fs.unlinkSync(sPath)
-        if (fs.existsSync(pPath)) fs.unlinkSync(pPath)
-        cb(0)
-      } catch (err) { cb(Fuse.EIO) }
+        const getP = (p) => isSuperFile(p) ? path.join(CONFIG.SOURCE_DIR, p) : path.join(CONFIG.PROJECT_DIR, p)
+        const n = getP(dest)
+        if (!fs.existsSync(path.dirname(n))) fs.mkdirSync(path.dirname(n), { recursive: true })
+        fs.renameSync(getP(src), n); cb(0)
+      } catch (e) { cb(Fuse.EIO) }
     },
-
-    truncate: (p, s, cb) => { try { fs.truncateSync(getRealFilePath(p), s); cb(0) } catch(e) { cb(Fuse.EIO) } },
-    utimens: (p, at, mt, cb) => cb(0),
-    chown: (p, u, g, cb) => cb(0),
-    chmod: (p, m, cb) => cb(0)
+    utimens: (p, at, mt, cb) => cb(0), chown: (p, u, g, cb) => cb(0), chmod: (p, m, cb) => cb(0)
   }
 
   const fuse = new Fuse(CONFIG.MOUNT_POINT, ops, { debug: false, displayFolder: true, nonempty: true })
-
+  
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(true); process.stdin.resume(); process.stdin.setEncoding("utf8")
     process.stdin.on("data", (key) => {
       if (key === "\u0003") exit()
-      const input = key.toLowerCase()
-      if (input === "1" || input === "e") { MODE = "edit"; console.log("\n[TECLADO] MODO: EDICION") }
-      else if (input === "2" || input === "x") { MODE = "exec"; console.log("\n[TECLADO] MODO: EJECUCION") }
+      if (key === "1" || key === "e") { MODE = "edit"; console.log("\nMODO: EDICION") }
+      else if (key === "2" || key === "x") { MODE = "exec"; console.log("\nMODO: EJECUCION") }
     })
   }
 
   function exit() { fuse.unmount(() => { if (process.stdin.isTTY) process.stdin.setRawMode(false); process.exit() }) }
-  fuse.mount(err => {
-    if (err) process.exit(1)
-    console.log("--- SISTEMA TOTAL RECUPERADO ---")
-  })
+  fuse.mount(err => { if (err) process.exit(1); console.log(`VFS ONLINE: ${CONFIG.MOUNT_POINT}`) })
   process.on("SIGINT", exit); process.on("SIGTERM", exit)
 }
-main().catch(() => process.exit(1))
+
+start()

@@ -15,8 +15,7 @@
     "virtual-fs": "index.js"
   },
   "dependencies": {
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
+    "better-sqlite3": "^12.10.1",
     "fuse-native": "^2.2.6"
   }
 }
