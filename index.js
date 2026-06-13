@@ -6,6 +6,9 @@ const fs = require("fs")
 const { applyConfig } = require("./lib/config")
 const { processContent } = require("./lib/processor")
 
+// --- CACHE STORAGE ---
+const openHandles = new Map(); 
+
 const args = process.argv.slice(2)
 if (args.length < 2) {
   console.log("Uso: node index.js <index> <config_path>")
@@ -47,7 +50,6 @@ async function main() {
     let relative = filePath.startsWith("/") ? filePath.slice(1) : filePath
     if (isSuperFile(relative)) {
       const sPath = path.join(CONFIG.SOURCE_DIR, relative)
-      if (fs.existsSync(sPath)) return sPath
       return sPath
     }
     return path.join(CONFIG.PROJECT_DIR, relative)
@@ -62,8 +64,7 @@ async function main() {
       if (dirPath === "/" || dirPath === "") entries.add(".mode")
       try {
         if (fs.existsSync(projectPath)) {
-          const files = fs.readdirSync(projectPath)
-          files.forEach(f => {
+          fs.readdirSync(projectPath).forEach(f => {
             if (relative === "" && CONFIG.IGNORE_LIST.includes(f)) return
             entries.add(f)
           })
@@ -85,21 +86,29 @@ async function main() {
       const sPath = path.join(CONFIG.SOURCE_DIR, relative)
       const pPath = path.join(CONFIG.PROJECT_DIR, relative)
       let realPath = (isSuperFile(relative) && fs.existsSync(sPath)) ? sPath : (fs.existsSync(pPath) ? pPath : null)
-      if (realPath) {
-        try {
-          const stats = fs.statSync(realPath)
-          if (stats.isDirectory()) return cb(null, stats)
-          if (MODE === "exec" && isSuperFile(filePath)) {
-            const processed = processContent(realPath, CONFIG)
-            return cb(null, { ...stats, size: Buffer.byteLength(processed), mode: 33060 })
-          }
-          return cb(null, stats)
-        } catch (e) { return cb(Fuse.EIO) }
-      }
-      return cb(Fuse.ENOENT)
+if (realPath) {
+    try {
+      const stats = fs.statSync(realPath);
+      if (stats.isDirectory()) return cb(null, stats);
+      
+      // CAMBIO AQUÍ: No ejecutes processContent. 
+      // Devuelve el tamaño del archivo fuente o un tamaño fijo (ej: 1MB)
+      // para que el comando 'cat' pueda leer sin ejecutar nada.
+      return cb(null, { ...stats, size: 1024 * 1024 }); 
+    } catch (e) { return cb(Fuse.EIO) }
+  }
+  return cb(Fuse.ENOENT)
     },
 
-    open: (f, fl, cb) => cb(0, 0),
+    open: function(filePath, flags, cb) {
+      if (MODE === "exec" && isSuperFile(filePath)) {
+        const realPath = getRealFilePath(filePath)
+        const content = processContent(realPath, CONFIG)
+        openHandles.set(filePath, Buffer.from(content))
+      }
+      cb(0, 42) // Use a dummy FD
+    },
+
     read: function (filePath, fd, buf, len, pos, cb) {
       if (filePath === "/.mode") {
         const str = MODE + "\n"
@@ -107,20 +116,27 @@ async function main() {
         part.copy(buf)
         return cb(part.length)
       }
-      const realPath = getRealFilePath(filePath)
-      if (MODE === "exec" && isSuperFile(filePath)) {
-        const processed = processContent(realPath, CONFIG)
-        const buffer = Buffer.from(processed)
+      
+      // Use cached content if available
+      if (openHandles.has(filePath)) {
+        const buffer = openHandles.get(filePath)
         const part = buffer.slice(pos, pos + len)
         part.copy(buf)
         return cb(part.length)
       }
+
       try {
+        const realPath = getRealFilePath(filePath)
         const fdReal = fs.openSync(realPath, "r")
         const bytesRead = fs.readSync(fdReal, buf, 0, len, pos)
         fs.closeSync(fdReal)
         return cb(bytesRead)
       } catch (e) { return cb(Fuse.EIO) }
+    },
+
+    release: function(filePath, fd, cb) {
+      openHandles.delete(filePath)
+      cb(0)
     },
 
     write: function (filePath, fd, buf, len, pos, cb) {
@@ -179,7 +195,6 @@ async function main() {
     },
 
     truncate: (p, s, cb) => { try { fs.truncateSync(getRealFilePath(p), s); cb(0) } catch(e) { cb(Fuse.EIO) } },
-    release: (f, fd, cb) => cb(0),
     utimens: (p, at, mt, cb) => cb(0),
     chown: (p, u, g, cb) => cb(0),
     chmod: (p, m, cb) => cb(0)

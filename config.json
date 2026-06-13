@@ -1,6 +1,6 @@
 {
-  "sourceDir": "/home/robin/workspace_aparte/.super_md/prompts",
-  "mountPoint": "/home/robin/workspace_aparte/prompts",
-  "scriptsDir": "/home/robin/workspace_aparte/.super_md/scripts",
-  "workingDir": "/home/robin/workspace_aparte/"
+  "sourceDir": ".super_md/prompts",
+  "mountPoint": "/home/robin/mnt",
+  "scriptsDir": ".super_md/scripts",
+  "workingDir": "."
 }
