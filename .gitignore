@@ -4,3 +4,4 @@ mnt/
 *.log
 proyecto_prueba/
 .super_md/
+extension/node_modules/

@@ -70,10 +70,22 @@ async function start() {
 function main() {
   const SUPER_SUFFIX = ".super.md"
   const isSuperFile = (p) => p.endsWith(SUPER_SUFFIX)
+  const isTransmutable = (p) => p.match(/\.super\.\w+\.md$/)
 
   function getRealFilePath(filePath) {
     let relative = filePath.startsWith("/") ? filePath.slice(1) : filePath
-    if (isSuperFile(relative)) return path.join(CONFIG.SOURCE_DIR, relative)
+    
+    // Si la ruta virtual no termina en .md pero contiene .super., 
+    // es una señal de que es un archivo transmutado (ej: reporte.super.html)
+    if (!relative.endsWith(".md") && relative.includes(".super.")) {
+      const transmutablePath = relative + ".md"
+      const sPath = path.join(CONFIG.SOURCE_DIR, transmutablePath)
+      if (fs.existsSync(sPath)) return sPath
+    }
+
+    if (isSuperFile(relative) || isTransmutable(relative)) {
+      return path.join(CONFIG.SOURCE_DIR, relative)
+    }
     return path.join(CONFIG.PROJECT_DIR, relative)
   }
 
@@ -84,6 +96,7 @@ function main() {
       const sPath = path.join(CONFIG.SOURCE_DIR, relative)
       const entries = new Set()
       if (dirPath === "/" || dirPath === "") entries.add(".mode")
+      
       try {
         if (fs.existsSync(pPath)) {
           fs.readdirSync(pPath).forEach(f => {
@@ -92,9 +105,17 @@ function main() {
           })
         }
       } catch (e) {}
+      
       try {
         if (fs.existsSync(sPath)) {
-          fs.readdirSync(sPath).forEach(f => { if (isSuperFile(f)) entries.add(f) })
+          fs.readdirSync(sPath).forEach(f => {
+            if (MODE === "exec" && isTransmutable(f)) {
+              // Transmuta: reporte.super.html.md -> reporte.super.html
+              entries.add(f.replace(/\.md$/, ""))
+            } else if (isSuperFile(f) || isTransmutable(f)) {
+              entries.add(f)
+            }
+          })
         }
       } catch (e) {}
       cb(0, Array.from(entries))
@@ -105,9 +126,20 @@ function main() {
         return cb(null, { mtime: new Date(), atime: new Date(), ctime: new Date(), mode: 33188, size: 10, uid: process.getuid(), gid: process.getgid() })
       }
       const relative = filePath.startsWith("/") ? filePath.slice(1) : filePath
-      const sPath = path.join(CONFIG.SOURCE_DIR, relative)
-      const pPath = path.join(CONFIG.PROJECT_DIR, relative)
-      let realPath = (isSuperFile(relative) && fs.existsSync(sPath)) ? sPath : (fs.existsSync(pPath) ? pPath : null)
+      
+      // Mapeo para archivos transmutados en modo EXEC
+      let mappedRelative = relative
+      if (MODE === "exec" && !relative.endsWith(".md") && relative.includes(".super.")) {
+        mappedRelative = relative + ".md"
+      }
+
+      const sPath = path.join(CONFIG.SOURCE_DIR, mappedRelative)
+      const pPath = path.join(CONFIG.PROJECT_DIR, mappedRelative)
+      
+      let realPath = ((isSuperFile(mappedRelative) || isTransmutable(mappedRelative)) && fs.existsSync(sPath)) 
+        ? sPath 
+        : (fs.existsSync(pPath) ? pPath : null)
+      
       if (realPath) {
         try {
           const stats = fs.statSync(realPath)
@@ -120,8 +152,12 @@ function main() {
 
     open: (filePath, flags, cb) => {
       if (filePath === "/.mode" || filePath === ".mode") return cb(0, 42)
-      if (MODE === "exec" && isSuperFile(filePath)) {
-        const content = processContent(getRealFilePath(filePath), CONFIG)
+      
+      const realPath = getRealFilePath(filePath)
+      const relative = filePath.startsWith("/") ? filePath.slice(1) : filePath
+
+      if (MODE === "exec" && (isSuperFile(realPath) || isTransmutable(realPath))) {
+        const content = processContent(realPath, CONFIG, relative)
         openHandles.set(filePath, Buffer.from(content))
       }
       cb(0, 42)
