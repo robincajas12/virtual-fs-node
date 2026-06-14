@@ -2,82 +2,70 @@
 
 A FUSE filesystem that turns Markdown into live, executable context for AI agents.
 
-**NEW: Hybrid Mode!** This version now supports a hybrid architecture that merges your project code with augmented diagnostic tools (`.super.md`).
+This version supports a hybrid architecture that merges project code with dynamic diagnostic tools (.super.md) and features a non-blocking execution engine.
 
----
+## Usage
 
-### `run-node`
-Runs inline JavaScript. Use `require('fs')`, `require('path')`, etc. Executes in `WORKING_DIR`.
+### Prerequisites
+- Node.js >= 14
+- FUSE (libfuse on Linux, macFUSE on macOS)
 
-````markdown
-```run-node
-const fs = require('fs')
-const ok = fs.existsSync('migrations/001_create_users.sql')
-console.log(ok ? '[x] users migration' : '[ ] users migration ⚠')
-if (!ok) console.log('    Missing: migrations/001_create_users.sql')
+### Installation
+```bash
+npm install
 ```
-````
 
-### `run`
-Runs a shell command in `WORKING_DIR`.
+### Start
+```bash
+node index.js <project_directory>
+```
 
-````markdown
+The system will automatically mount the virtual filesystem. The mount point is configured in `.super_md/config.json`.
+
+## Features
+
+### Non-blocking Execution
+The filesystem handles multiple concurrent read operations. Long-running scripts or diagnostic blocks do not block other filesystem operations.
+
+### Execution Modes
+The system can toggle between two modes using the terminal:
+- **Edit Mode (1/e):** Files are displayed and editable as standard Markdown.
+- **Exec Mode (2/x):** Code blocks are executed on read, returning only the output.
+
+### Caching (TTL)
+Results can be cached to improve performance. Append a time duration to the block tag using the `:time` syntax. Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days).
+
+Example:
+```run-node:1h
+// This block will only execute once every hour and every time you read it it will use the result in cache
+console.log(Date.now());
+```
+
+## Code Blocks
+
+### run-node
+Executes inline JavaScript.
+```run-node
+const fs = require('fs');
+const exists = fs.existsSync('src/main.js');
+console.log(exists ? '[x] main.js exists' : '[ ] missing main.js');
+```
+
+### run
+Executes shell commands in the project root.
 ```run
-npm test --silent 2>&1 | tail -5
+grep -r "require.*processor" . --exclude="*.super.md" | cut -d: -f1 | sed 's/^/- /'
 ```
-````
 
-### `script`
-Runs a shell command in `SCRIPTS_DIR`.
-
-````markdown
+### script
+Executes scripts from the configured scripts directory.
 ```script
-node check-env.js
-```
-````
-
-All blocks have a 5s timeout. On error, the block is replaced with `[Error: …]` — the filesystem keeps running.
-
-## Example
-
-`textos/api-checklist.md`:
-
-````markdown
-// AUTH — Routes & middleware
-```run-node
-const fs = require('fs')
-const src = fs.readFileSync('src/index.js', 'utf8')
-console.log(src.includes('/auth/register') ? '[x] POST /auth/register' : '[ ] POST /auth/register ⚠')
+node fetch-notion-tasks.js
 ```
 
-// DATABASE
-```run-node
-const fs = require('fs')
-const ok = fs.existsSync('migrations/001_create_users.sql')
-console.log(ok ? '[x] users migration' : '[ ] users migration ⚠')
-if (!ok) console.log('    Missing: migrations/001_create_users.sql')
-```
-````
+## Sidecar Pattern
+Dynamic context can be associated with any file by creating a `.super.md` companion. 
 
-Agent reads the file, sees what's missing, creates the files, reads again:
+Example: `lib/auth.js` -> `lib/auth.js.super.md`
 
-```
-// AUTH — Routes & middleware
-[x] POST /auth/register
-
-// DATABASE
-[ ] users migration ⚠
-    Missing: migrations/001_create_users.sql
-```
-
-Agent writes the file. Reads again:
-
-```
-// AUTH — Routes & middleware
-[x] POST /auth/register
-
-// DATABASE
-[x] users migration
-```
-
-Done. The file re-executes on every read — no cache, no polling, no stale state.
+When an AI agent reads the `.super.md` file in Exec Mode, it receives a real-time report of the associated file's status (dependencies, linting, tests, etc.) without human intervention.
