@@ -150,15 +150,20 @@ function main() {
       cb(Fuse.ENOENT)
     },
 
-    open: (filePath, flags, cb) => {
+    open: async (filePath, flags, cb) => {
       if (filePath === "/.mode" || filePath === ".mode") return cb(0, 42)
       
       const realPath = getRealFilePath(filePath)
       const relative = filePath.startsWith("/") ? filePath.slice(1) : filePath
 
       if (MODE === "exec" && (isSuperFile(realPath) || isTransmutable(realPath))) {
-        const content = processContent(realPath, CONFIG, relative)
-        openHandles.set(filePath, Buffer.from(content))
+        try {
+          const content = await processContent(realPath, CONFIG, relative)
+          openHandles.set(filePath, Buffer.from(content))
+        } catch (e) {
+          console.error(`Error procesando ${filePath}:`, e)
+          return cb(Fuse.EIO)
+        }
       }
       cb(0, 42)
     },

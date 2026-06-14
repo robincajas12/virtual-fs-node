@@ -6,53 +6,6 @@ A FUSE filesystem that turns Markdown into live, executable context for AI agent
 
 ---
 
-## 📖 Documentation
-For the new Hybrid Mode features, check out the [Hybrid Guide](docs/guia.md).
-
----
-
-## Install
-
-```bash
-npm install
-```
-
-Requires Node.js ≥ 14 and FUSE installed on your OS (`libfuse` on Linux, `macFUSE` on macOS).
-
-## Start
-
-```bash
-node index.js <index> <config.json>
-```
-
-```bash
-# example
-node index.js myproject config.json
-
-# agent or terminal can now read
-cat mnt/myproject/api-checklist.md
-```
-
-## Config
-
-```json
-{
-  "SOURCE_DIR":  "./textos",
-  "MOUNT_POINT": "./mnt/myproject",
-  "WORKING_DIR": "./myproject",
-  "SCRIPTS_DIR": "./scripts"
-}
-```
-
-| Key           | Description                                              |
-|---------------|----------------------------------------------------------|
-| `SOURCE_DIR`  | Where your `.md` checklist files live                    |
-| `MOUNT_POINT` | Where agents read from                                   |
-| `WORKING_DIR` | Working directory for `run-node` and `run` blocks        |
-| `SCRIPTS_DIR` | Working directory for `script` blocks                    |
-
-## Available blocks
-
 ### `run-node`
 Runs inline JavaScript. Use `require('fs')`, `require('path')`, etc. Executes in `WORKING_DIR`.
 
