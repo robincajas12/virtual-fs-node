@@ -1,47 +1,23 @@
-# Virtual FS Node - Guía de Arquitectura Avanzada
+# Virtual FS Node
 
-Virtual FS Node ha evolucionado de un sistema de archivos simple a una **Plataforma de Diagnóstico Universal** desacoplada y asíncrona.
+A virtual filesystem that attaches computable metadata and execution layers to Markdown files.
 
----
+## mechanics
 
-## 🏗 Arquitectura del Sistema
+The system mounts a directory via FUSE and intercepts read operations. Markdown code blocks are executed on-demand, and their output replaces the source block before the data reaches the caller.
 
-El procesamiento de archivos ahora sigue un flujo de trabajo modular basado en patrones de diseño industriales:
+## state management
 
-### 1. El Pipeline (Middleware)
-Cada vez que se lee un archivo, el contenido pasa por una serie de middlewares:
-- `loadContent`: Carga el Markdown original.
-- `executeBlocks`: Detecta bloques de código y delega su ejecución.
-- `transmuteHtml`: (Opcional) Convierte el Markdown en una página web si la extensión es `.html`.
+The terminal interface allows switching between two modes:
+- **Edit Mode (1/e):** standard source text access.
+- **Exec Mode (2/x):** process output access.
 
-### 2. Ejecutores (Strategy)
-La lógica de ejecución está separada por tipos:
-- **`NodeExecutor`**: Ejecuta JS moderno inyectando código vía `stdin`.
-- **`ShellExecutor`**: Ejecuta comandos de sistema.
-- **`ScriptExecutor`**: Lanza scripts predefinidos.
+## configuration
 
-### 3. Decoradores (Decorator)
-Añadimos capacidades sin tocar el código base de los ejecutores:
-- **`LoggingDecorator`**: Mide y reporta tiempos de ejecución en consola.
-- **`CacheDecorator`**: Gestiona el TTL (Time To Live) de los resultados.
+The `.super_md/config.json` file defines the mount point and working directories for the execution blocks.
 
----
+## technical notes
 
-## ⚡ Concurrencia y Rendimiento
-A diferencia de las versiones anteriores, este sistema es **No Bloqueante**:
-- Puedes abrir múltiples archivos pesados (con `sleep` o procesos largos) simultáneamente.
-- El Sistema de Archivos seguirá respondiendo a comandos como `ls` o `getattr` mientras los procesos pesados corren de fondo.
-
----
-
-## 🗄 Capa de Datos (Repository)
-El sistema de caché es ahora intercambiable:
-- **SQLite**: Persistencia garantizada entre reinicios.
-- **Memory**: Velocidad máxima para desarrollo efímero.
-- *Próximamente:* Soporte para Redis.
-
----
-
-## 🪄 El concepto de "Sidecar Aumentado"
-Los archivos `.super.md` ahora pueden actuar como sidecars de tus archivos `.js`.
-- **Ejemplo:** `auth.js` puede tener un `auth.js.super.md` que verifique en tiempo real si el archivo tiene errores de linting, cobertura de tests o vulnerabilidades de seguridad, ofreciendo un contexto enriquecido a cualquier Agente IA que interactúe con él.
+- **Non-blocking core:** concurrent read operations are supported.
+- **Persistent cache:** blocks can store results using the `:time` syntax.
+- **Stdin execution:** code blocks are piped directly to runtimes to ensure data integrity.
